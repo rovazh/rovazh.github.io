@@ -27,7 +27,7 @@ export const siteConfig: SiteConfig = {
 	*/
 	title: "Roman Vazhynskyi",
 	// ! Please remember to replace the following site property with your own domain, used in astro.config.ts
-	url: "https://rovazh.github.io/",
+	url: "https://rovazh.com/",
 };
 
 // Used to generate links in both the Header & Footer.

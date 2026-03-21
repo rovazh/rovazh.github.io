@@ -19,7 +19,7 @@ Only authorized backends can call the service; therefore an authorization mechan
 
 The OAuth provider’s role here is to host the authorization server and issue client credentials. These credentials are generated once a client registers their backend with the provider.
 
-Clients, however, do not access the provider directly. Instead, they register their backends on a special web portal backed by the service. Nor do they request access tokens from the provider’s authorization server; rather, clients call a special proxy service that then calls the actual authorization server. These two design decisions, made at the beginning of the service development, greatly contributed to the success of the whole migration.
+Clients, however, do not access the provider directly. Instead, they register their backends on a special web portal backed by the service. Nor do they request access tokens from the provider’s authorization server; rather, clients call a special proxy service that then calls the actual authorization server.
 
 ## The Challenges
 

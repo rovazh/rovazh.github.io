@@ -1,0 +1,75 @@
+---
+title: "Changing OAuth Provider with Zero Downtime"
+description: "This is a case study of a phased approach to OAuth provider migration"
+publishDate: "21 March 2026"
+updatedDate: "29 March 2026"
+tags: ["migration", "case study"]
+---
+
+## Introduction
+
+Recently, I completed a successful migration to a new OAuth provider in production. The provider authorized incoming requests sent by external clients to a critical service with a high SLA. Because of the service's criticality, the migration had to be performed with zero downtime to remain compliant with that SLA. Consequently, I developed and implemented a strategy to switch from one OAuth provider to another without service disruption. In the following post, I will walk you through the challenges of this migration and the decisions I made to overcome them.
+
+## The Service
+
+Before diving into the migration details, let me briefly describe the service and how it authorizes incoming requests. The service provides an API that clients integrate with their backends; these backends then make requests to the API on their own behalf. Since no human user is involved, this communication is referred to as Machine-to-Machine (M2M).
+
+To ensure only authorized backends can call the service, an authorization mechanism is required. We implement this using the OAuth client credentials grant flow, which is well-suited for M2M communication. Simply put, a client's backend requests an access token from an authorization server and uses it to access the service. The service then verifies the access token and handles the request if the token is valid.
+
+The OAuth provider's role is to host the authorization server and issue client credentials. These credentials are generated once a client registers their backend on a special web portal backed by the service. Clients do not access the provider directly; rather, they call a special proxy service that forwards the request to the actual authorization server.
+
+## The Challenges
+
+In the OAuth client credentials grant flow, credentials are static and remain valid for a long period. This implies that once a client registers their backend, the generated credentials are hardcoded in their configurations and remain intact until they expire. If a simple cutover had been attempted without thorough planning, every client would have been forced to register their backends with the new provider and update their configurations simultaneously. Such a disruptive change would have inevitably led to downtime.
+
+## The Solution: A Three-Phase Approach
+
+Considering these challenges, I prepared a migration strategy consisting of three distinct phases:
++ **Phase One:** Integrate the new OAuth provider into the service’s architecture.
++ **Phase Two:** Activate the new provider while keeping the legacy provider functional to ensure zero downtime.
++ **Phase Three:** Deactivate and decommission the legacy provider.
+
+### Phase One: Integration
+
+To integrate the new provider into the service, three distinct system components had to be modified: the web portal, the proxy service, and the service's authorization logic.
+
+The modifications to the web portal were the first step in enabling the transition. Originally, the portal called the legacy provider's API when a client registered their backend. As illustrated in Figure 1, I implemented a compatible adapter for the new provider’s API alongside a feature flag. This allowed us to toggle which provider issued the credentials during the transition period.
+
+<figure style="text-align: center;">
+  <img src="/images/post/zero-downtime-oauth-m2m-migration/web-portal-diagram.svg" alt="Figure 1. Registration logic utilizing a feature flag to route to the new or legacy provider adapter." style="max-width: 351px; width: 100%; margin: auto;" />
+  <figcaption style="margin-top: 0.5rem; font-size: 0.9rem; color: #757575;">
+    Figure 1. Registration logic utilizing a feature flag to route to the new or legacy provider adapter.
+  </figcaption>
+</figure>
+
+It was critical that credentials issued before this switch remained valid so clients could continue using the service without disruption. To achieve this, I updated the proxy service to support both providers simultaneously.
+
+Figure 2 demonstrates how the proxy service handles incoming token requests. Upon receiving a request, the proxy extracts the client ID to identify which provider the client belongs to. Based on this ID, the proxy then routes the request to the appropriate authorization server adapter.
+
+<figure style="text-align: center;">
+  <img src="/images/post/zero-downtime-oauth-m2m-migration/proxy-service-diagram.svg" alt="Figure 2: Proxy service decision logic for routing credential exchanges based on client ID." style="max-width: 320px; width: 100%; margin: auto;" />
+  <figcaption style="margin-top: 0.5rem; font-size: 0.9rem; color: #757575;">
+    Figure 2. Proxy service decision logic for routing credential exchanges based on client ID.
+  </figcaption>
+</figure>
+
+The final piece of the integration phase involved the service's internal authorization logic. As shown in Figure 3, I modified the service to support access tokens issued by both providers at the same time. By extracting the *iss* (issuer) claim from the incoming token, the service can determine which URL issued the token. The correct SDK is then selected to verify the token, ensuring that both legacy and new clients are authenticated correctly.
+
+<figure style="text-align: center;">
+  <img src="/images/post/zero-downtime-oauth-m2m-migration/auth-logic-diagram.svg" alt="Figure 3. Authorization flow using the 'iss' claim to verify tokens from two providers." style="max-width: 342px; width: 100%; margin: auto;" />
+  <figcaption style="margin-top: 0.5rem; font-size: 0.9rem; color: #757575;">
+    Figure 3. Authorization flow using the 'iss' claim to verify tokens from two providers.
+  </figcaption>
+</figure>
+
+### Phase Two: Rolling Out
+
+After all the necessary development was complete, I gradually deployed the modified system components to the upper environments. Once I confirmed that the system was stable and the new integrations were ready, I enabled the feature flag.
+
+At this point, any new client backends began registering with the new provider via the web portal. Simultaneously, the dual-support logic in the proxy service and the main service’s API ensured that existing clients could continue using credentials issued by the legacy provider without any interruption to their service. We simply had to wait for those legacy credentials to reach their natural expiration.
+
+### Phase Three: Cleanup
+
+The dual-provider solution remained in operation until the final legacy credentials expired. Throughout this period, I monitored the metrics to confirm that no clients were still attempting to authenticate using the old provider.
+
+Once I verified that traffic to the legacy provider had dropped to zero, it was safe to remove the legacy integration code from the three system components. This final cleanup marked the successful completion of the zero-downtime migration.
